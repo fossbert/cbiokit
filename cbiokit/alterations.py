@@ -31,6 +31,7 @@ The exports are derived data of the respective studies; keep them out of version
 when the study licence forbids redistribution (e.g. MSK-CHORD: CC BY-NC-ND 4.0).
 """
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Sequence, Union
@@ -335,12 +336,119 @@ def alteration_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", "
     else:
         raise ValueError("level must be 'gene' or 'event'")
 
+    m = _aggregate_by(m, export, by)
+    return m.loc[m.sum(axis=1) >= min_samples]
+
+
+def _aggregate_by(m: pd.DataFrame, export: AlterationExport, by: str) -> pd.DataFrame:
+    """samples x rows -> rows x (samples or patients); patients: any 1, else any 0, else NaN."""
+
     if by == "PATIENT_ID":
         patient = export.samples.set_index("SAMPLE_ID")["PATIENT_ID"].reindex(m.index)
         m = m.groupby(patient.to_numpy(), sort=False).max()
         m.index.name = "PATIENT_ID"
     elif by != "SAMPLE_ID":
         raise ValueError("by must be 'SAMPLE_ID' or 'PATIENT_ID'")
+    return m.T
 
-    m = m.T
+
+_NOT_A_PARTNER = {"intragenic"}
+
+
+def _parse_fusion(gene: str, event: str):
+    """Event listed under ``gene`` -> (5' gene, 3' gene), or None if it is no gene fusion.
+
+    'CLDN18-ARHGAP26 fusion' / 'ERBB2-PSMB3' under CLDN18 / ERBB2; the queried gene is one of
+    the two partners and the rest of the text is the other. 'APC-intragenic' and
+    non-fusion structural variants give None.
+    """
+
+    name = event[: -len(" fusion")] if event.endswith(" fusion") else event
+    if name.startswith(gene + "-"):
+        five, three = gene, name[len(gene) + 1:]
+        other = three
+    elif name.endswith("-" + gene):
+        five, three = name[: -len(gene) - 1], gene
+        other = five
+    else:
+        return None
+    if not other or other in _NOT_A_PARTNER or re.search(r"\s", other):
+        return None
+    return five, three
+
+
+def fusion_events(export: AlterationExport) -> pd.DataFrame:
+    """Gene fusions of an export, one row per sample, queried gene and event.
+
+    Columns: SAMPLE_ID, QUERIED (gene under which the export lists the event), GENE5, GENE3,
+    FUSION ('GENE5-GENE3'). A fusion between two queried genes appears twice (once per
+    partner); orientation is kept, 'A-B' and 'B-A' are different fusions. Structural variants
+    that are no gene fusions (intragenic, deletions within a transcript) are left out.
+    """
+
+    ev = export.events[export.events["TYPE"] == "FUSION"]
+    rows = []
+    for sid, gene, event in zip(ev["SAMPLE_ID"], ev["GENE"], ev["EVENT"]):
+        parsed = _parse_fusion(gene, event)
+        if parsed:
+            rows.append((sid, gene, *parsed))
+    out = pd.DataFrame(rows, columns=["SAMPLE_ID", "QUERIED", "GENE5", "GENE3"])
+    out["FUSION"] = out["GENE5"] + "-" + out["GENE3"]
+    return out
+
+
+def fusion_matrix(export: AlterationExport, groups: Optional[Dict[str, str]] = None, others: bool = True,
+                  by: str = "SAMPLE_ID", min_samples: int = 0) -> pd.DataFrame:
+    """Binary gene-fusion matrix, fusions x samples (same conventions as ``alteration_matrix``).
+
+    Exports never label fusions as drivers, so every fusion is listed. Each fusion appears once
+    per sample even if the export reports it under both partners.
+
+    Parameters
+    ----------
+    export : AlterationExport
+    groups : dict of {row name: regex}, optional
+        Fusions whose 'GENE5-GENE3' fully matches the regex are merged into one row, e.g.
+        ``{"CLDN18-ARHGAP6/26": r"CLDN18-ARHGAP(6|26)"}``. The first matching group wins.
+        Groups without any matching fusion are omitted.
+    others : bool
+        Keep fusions matching no group as their own rows (default); otherwise drop them.
+    by : {'SAMPLE_ID', 'PATIENT_ID'}
+    min_samples : int
+        Rows with fewer samples are dropped.
+
+    Returns
+    -------
+    pd.DataFrame
+        1 = fusion present; 0 = absent and every queried partner gene was profiled for
+        structural variants; NaN otherwise. Rows: groups first, then single fusions by
+        frequency (descending).
+    """
+
+    fe = fusion_events(export)
+    index = export.profiled.index
+    prof = export.profiled.xs("FUSION", axis=1, level="TYPE")
+
+    def _row(fusion: str) -> Optional[str]:
+        for name, pattern in (groups or {}).items():
+            if re.fullmatch(pattern, fusion):
+                return name
+        return fusion if others else None
+
+    fe["ROW"] = fe["FUSION"].map({f: _row(f) for f in fe["FUSION"].unique()})
+    fe = fe.dropna(subset=["ROW"])
+
+    counts = fe.drop_duplicates(["SAMPLE_ID", "ROW"]).groupby("ROW").size()
+    order = [g for g in (groups or {}) if g in counts.index]
+    order += counts.drop(order).sort_values(ascending=False, kind="stable").index.tolist()
+
+    cols = {}
+    for row in order:
+        sub = fe[fe["ROW"] == row]
+        has = index.isin(sub["SAMPLE_ID"])
+        evaluable = prof[sorted(set(sub["QUERIED"]))].all(axis=1).to_numpy()
+        cols[row] = np.where(has, 1.0, np.where(evaluable, 0.0, np.nan))
+    m = pd.DataFrame(cols, index=index)
+
+    m = _aggregate_by(m, export, by)
     return m.loc[m.sum(axis=1) >= min_samples]

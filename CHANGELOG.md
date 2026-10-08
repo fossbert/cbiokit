@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+- `fusion_events`, `fusion_matrix`: gene fusions, which the exports never label as drivers. Events
+  are parsed to 5'/3' partners ('A-B', 'A-B fusion', reported under one or both partners) and
+  deduplicated; `groups` merges variants into one row (e.g. `{"CLDN18-ARHGAP6/26":
+  r"CLDN18-ARHGAP(6|26)"}`); absence is only called where all queried partners were profiled for
+  structural variants. Non-fusion structural variants (intragenic, deletions within a
+  transcript) are excluded. On TCGA STAD + EAC: 10 CLDN18-ARHGAP6/26 fusions, identical to the
+  former notebook routine.
+
 ## 0.2.0
 
 ### Added

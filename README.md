@@ -27,6 +27,7 @@ ex = cbk.concat_exports([cbk.read_alteration_export(f) for f in files])
 muts = cbk.alteration_matrix(ex, types=("MUT",), by="PATIENT_ID", min_samples=10)   # genes x patients
 amps = cbk.alteration_matrix(ex, types=("AMP",), level="gene")
 variants = cbk.alteration_matrix(ex, types=("MUT",), level="event")                 # 'GENE:EVENT' rows
+fusions = cbk.fusion_matrix(ex, groups={"CLDN18-ARHGAP6/26": r"CLDN18-ARHGAP(6|26)"})  # gene fusions
 ```
 
 See the module docstring of `cbiokit.alterations` for the export format and

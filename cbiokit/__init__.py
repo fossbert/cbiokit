@@ -9,6 +9,7 @@ The public API is re-exported at the top level::
 """
 
 from .alterations import (AlterationExport, alteration_matrix, concat_exports, driver_event_matrix,
-                          driver_gene_matrix, panel_genes_from_export, read_alteration_export)
+                          driver_gene_matrix, fusion_events, fusion_matrix, panel_genes_from_export,
+                          read_alteration_export)
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
