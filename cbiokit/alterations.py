@@ -269,3 +269,78 @@ def driver_gene_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", 
             res[f"{g}_SV"] = np.where(has, 1.0, np.where(prof[(g, "FUSION")], 0.0, np.nan))
 
     return res.reset_index()
+
+
+def concat_exports(exports: Sequence[AlterationExport]) -> AlterationExport:
+    """Combine exports of several studies/queries into one.
+
+    Samples are stacked (IDs must be unique across the exports). Genes missing from one
+    export count as not profiled in its samples, so no sample is ever treated as wild type for
+    a gene it was never queried for.
+
+    Parameters
+    ----------
+    exports : sequence of AlterationExport
+        e.g. one export per TCGA cohort (STAD, ESCA) read with ``read_alteration_export``.
+
+    Returns
+    -------
+    AlterationExport
+    """
+
+    exports = list(exports)
+    if not exports:
+        raise ValueError("No exports given")
+    samples = pd.concat([e.samples for e in exports], ignore_index=True)
+    dup = samples.loc[samples["SAMPLE_ID"].duplicated(), "SAMPLE_ID"]
+    if len(dup):
+        raise ValueError(f"Sample IDs are not unique across exports, e.g. {dup.iloc[0]!r}")
+    events = pd.concat([e.events for e in exports], ignore_index=True)
+    profiled = pd.concat([e.profiled for e in exports], axis=0)
+    profiled = profiled.fillna(False).astype(bool)
+    return AlterationExport(samples, events, profiled)
+
+
+def alteration_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", "AMP", "HOMDEL"),
+                      level: str = "gene", by: str = "SAMPLE_ID", min_samples: int = 0) -> pd.DataFrame:
+    """Binary driver matrix, rows x samples (e.g. as the ``mutations`` input of ``pyrea``).
+
+    Parameters
+    ----------
+    export : AlterationExport
+    types : sequence of {'MUT', 'AMP', 'HOMDEL', 'FUSION'}
+        Alteration types counted, e.g. ``("MUT",)`` for mutations only or ``("AMP",)``.
+    level : {'gene', 'event'}
+        ``'gene'``: one row per gene (1 = driver of one of ``types``; 0 only if profiled for
+        ALL ``types``). ``'event'``: one row per ``GENE:EVENT`` (see ``driver_event_matrix``).
+    by : {'SAMPLE_ID', 'PATIENT_ID'}
+        Columns are samples, or patients (several samples of a patient are combined: 1 if any
+        is 1, else 0 if any is 0, else missing).
+    min_samples : int
+        Rows with fewer samples carrying the alteration are dropped (default 0 keeps all genes,
+        also those without any driver).
+
+    Returns
+    -------
+    pd.DataFrame
+        1 = present, 0 = absent, NaN = not profiled. Rows in the order of the underlying
+        matrix (events: by gene frequency).
+    """
+
+    if level == "gene":
+        m = driver_gene_matrix(export, types=types, fusions=False).set_index("SAMPLE_ID")
+        m.columns = m.columns.str.removesuffix("_DRIVER")
+    elif level == "event":
+        m = driver_event_matrix(export, types=types)
+    else:
+        raise ValueError("level must be 'gene' or 'event'")
+
+    if by == "PATIENT_ID":
+        patient = export.samples.set_index("SAMPLE_ID")["PATIENT_ID"].reindex(m.index)
+        m = m.groupby(patient.to_numpy(), sort=False).max()
+        m.index.name = "PATIENT_ID"
+    elif by != "SAMPLE_ID":
+        raise ValueError("by must be 'SAMPLE_ID' or 'PATIENT_ID'")
+
+    m = m.T
+    return m.loc[m.sum(axis=1) >= min_samples]

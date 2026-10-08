@@ -21,6 +21,12 @@ import cbiokit as cbk
 ex = cbk.read_alteration_export("alterations_across_samples.tsv")
 events = cbk.driver_event_matrix(ex)      # samples x 'KRAS:G12D', 'ERBB2:AMP', ...; NaN = not profiled
 genes = cbk.driver_gene_matrix(ex)        # <GENE>_DRIVER, <GENE>_SV per sample
+
+# several cohorts, rows x samples with NaN = not profiled (input for e.g. pyrea's MPS)
+ex = cbk.concat_exports([cbk.read_alteration_export(f) for f in files])
+muts = cbk.alteration_matrix(ex, types=("MUT",), by="PATIENT_ID", min_samples=10)   # genes x patients
+amps = cbk.alteration_matrix(ex, types=("AMP",), level="gene")
+variants = cbk.alteration_matrix(ex, types=("MUT",), level="event")                 # 'GENE:EVENT' rows
 ```
 
 See the module docstring of `cbiokit.alterations` for the export format and
