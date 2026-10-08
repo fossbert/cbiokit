@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cbiokit"
+version = "0.1.0"
+description = "Helpers for cBioPortal exports: driver (OncoKB) events and matrices from alterations-across-samples tables"
+authors = [{ name = "H. Carlo Maurer", email = "h.carlo.maurer@gmail.com" }]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+keywords = ["cbioportal", "oncokb", "somatic-mutations", "drivers", "oncology"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "numpy>=1.22",
+    "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.urls]
+Repository = "https://github.com/fossbert/cbiokit"
+Issues = "https://github.com/fossbert/cbiokit/issues"
+
+[tool.setuptools.packages.find]
+include = ["cbiokit*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
