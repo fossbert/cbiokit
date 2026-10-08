@@ -418,8 +418,64 @@ def fusion_events(export: AlterationExport) -> pd.DataFrame:
     return out
 
 
-def fusion_matrix(export: AlterationExport, groups: Optional[Dict[str, str]] = None, others: bool = True,
-                  by: str = "SAMPLE_ID", min_samples: int = 0) -> pd.DataFrame:
+def _fusion_pattern_match(pattern, five: str, three: str, ignore_orientation: bool) -> bool:
+    """Does a fusion five-three match a group pattern (regex on 'A-B', or (regex 5', regex 3'))?"""
+
+    def one(a: str, b: str) -> bool:
+        if isinstance(pattern, str):
+            return re.fullmatch(pattern, f"{a}-{b}") is not None
+        p5, p3 = pattern
+        return ((p5 is None or re.fullmatch(p5, a) is not None) and
+                (p3 is None or re.fullmatch(p3, b) is not None))
+
+    return one(five, three) or (ignore_orientation and one(three, five))
+
+
+def fusion_summary(export: AlterationExport, five: Optional[str] = None, three: Optional[str] = None,
+                   ignore_orientation: bool = False, by: str = "SAMPLE_ID") -> pd.DataFrame:
+    """Overview of the gene fusions of an export, to decide which ones to group.
+
+    Parameters
+    ----------
+    export : AlterationExport
+    five, three : str, optional
+        Regular expressions (full match) for the 5' / 3' partner, e.g. ``five=r"CLDN\\d+"``;
+        only matching fusions are listed.
+    ignore_orientation : bool
+        Also accept the reverse orientation (``three`` as 5' partner).
+    by : {'SAMPLE_ID', 'PATIENT_ID'}
+        What ``n`` counts.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per fusion ('GENE5-GENE3'): GENE5, GENE3, n (samples or patients with the
+        fusion), queried (the exported genes under which it is listed), sorted by n.
+        Only fusions listed under a queried gene exist in an export; to find e.g. all claudin
+        partners, all claudins must be in the gene query of the download.
+    """
+
+    fe = fusion_events(export)
+    if by == "PATIENT_ID":
+        fe["UNIT"] = fe["SAMPLE_ID"].map(export.samples.set_index("SAMPLE_ID")["PATIENT_ID"])
+    elif by == "SAMPLE_ID":
+        fe["UNIT"] = fe["SAMPLE_ID"]
+    else:
+        raise ValueError("by must be 'SAMPLE_ID' or 'PATIENT_ID'")
+
+    pattern = (five, three)
+    if five is not None or three is not None:
+        keep = [_fusion_pattern_match(pattern, a, b, ignore_orientation)
+                for a, b in zip(fe["GENE5"], fe["GENE3"])]
+        fe = fe[keep]
+    out = fe.groupby("FUSION").agg(GENE5=("GENE5", "first"), GENE3=("GENE3", "first"),
+                                   n=("UNIT", "nunique"),
+                                   queried=("QUERIED", lambda x: ", ".join(sorted(set(x)))))
+    return out.sort_values(["n"], ascending=False, kind="stable")
+
+
+def fusion_matrix(export: AlterationExport, groups: Optional[Dict[str, object]] = None, others: bool = True,
+                  by: str = "SAMPLE_ID", min_samples: int = 0, ignore_orientation: bool = False) -> pd.DataFrame:
     """Binary gene-fusion matrix, fusions x samples (same conventions as ``alteration_matrix``).
 
     Exports never label fusions as drivers, so every fusion is listed. Each fusion appears once
@@ -428,15 +484,19 @@ def fusion_matrix(export: AlterationExport, groups: Optional[Dict[str, str]] = N
     Parameters
     ----------
     export : AlterationExport
-    groups : dict of {row name: regex}, optional
-        Fusions whose 'GENE5-GENE3' fully matches the regex are merged into one row, e.g.
-        ``{"CLDN18-ARHGAP6/26": r"CLDN18-ARHGAP(6|26)"}``. The first matching group wins.
-        Groups without any matching fusion are omitted.
+    groups : dict of {row name: pattern}, optional
+        Fusions matching a pattern are merged into one row. A pattern is either a regex that
+        fully matches 'GENE5-GENE3', e.g. ``r"CLDN18-ARHGAP(6|26)"``, or a pair of regexes
+        for the two partners, ``(r"CLDN\\d+", r"ARHGAP\\d+")`` (None = any gene), which also
+        generalises to other family members and other tumour types. The first matching group
+        wins. Groups without any matching fusion are omitted.
     others : bool
         Keep fusions matching no group as their own rows (default); otherwise drop them.
     by : {'SAMPLE_ID', 'PATIENT_ID'}
     min_samples : int
         Rows with fewer samples are dropped.
+    ignore_orientation : bool
+        A pattern also matches the reverse orientation (e.g. a claudin as 3' partner).
 
     Returns
     -------
@@ -450,9 +510,12 @@ def fusion_matrix(export: AlterationExport, groups: Optional[Dict[str, str]] = N
     index = export.profiled.index
     prof = export.profiled.xs("FUSION", axis=1, level="TYPE")
 
+    partners = fe.drop_duplicates("FUSION").set_index("FUSION")[["GENE5", "GENE3"]]
+
     def _row(fusion: str) -> Optional[str]:
+        five, three = partners.loc[fusion]
         for name, pattern in (groups or {}).items():
-            if re.fullmatch(pattern, fusion):
+            if _fusion_pattern_match(pattern, five, three, ignore_orientation):
                 return name
         return fusion if others else None
 

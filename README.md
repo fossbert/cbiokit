@@ -58,9 +58,19 @@ not drop rare variants beforehand (`min_samples` in `alteration_matrix`).
 Fusions are never labelled as drivers and therefore have their own matrix:
 
 ```python
-fus = cbk.fusion_matrix(ex, groups={"CLDN18-ARHGAP6/26": r"CLDN18-ARHGAP(6|26)"}, by="PATIENT_ID")
+# which fusions does the export contain? (to decide what to group)
+cbk.fusion_summary(ex, five=r"CLDN\d+", ignore_orientation=True)
+
+# one row per group; a pattern is a regex on 'GENE5-GENE3' or a pair of regexes (5', 3')
+fus = cbk.fusion_matrix(ex, by="PATIENT_ID", ignore_orientation=True,
+                        groups={"CLDN-ARHGAP": (r"CLDN\d+", r"ARHGAP\d+"),     # any claudin with any ARHGAP
+                                "CLDN18-ARHGAP6/26": r"CLDN18-ARHGAP(6|26)"})  # first matching group wins
 ```
 
 A fusion that the export lists under both partners counts once per sample; 'A-B' and 'B-A' are
-different fusions; `groups` merges variants into one row.
+different fusions unless `ignore_orientation=True`; `None` in a pair means any gene.
 
+**Only fusions listed under a queried gene are in an export.** If the download was made with
+CLDN18 and ARHGAP26 only, claudin-ARHGAP fusions involving other genes cannot be found. For a
+general analysis (or another tumour type) download the export with all family members in the
+gene query (e.g. every CLDN* and ARHGAP*).

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+- `fusion_matrix(groups=...)`: a group can be a pair of regexes `(5' partner, 3' partner)`
+  (None = any gene), e.g. `(r"CLDN\d+", r"ARHGAP\d+")`; `ignore_orientation=True` also accepts
+  the reverse orientation. Plain regexes work as before.
+- `fusion_summary`: table of the fusions in an export (partners, number of samples/patients,
+  queried genes), optionally filtered by partner regexes.
+
 ## 0.4.0
 
 ### Added

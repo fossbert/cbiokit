@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cbiokit import fusion_events, fusion_matrix, read_alteration_export
+from cbiokit import fusion_events, fusion_matrix, fusion_summary, read_alteration_export
 from test_alterations import export  # noqa: F401  (fixture)
 
 NA, NP = "no alteration", "not profiled"
@@ -71,3 +71,27 @@ def test_export_without_fusions(export):  # noqa: F811
     m = fusion_matrix(export)
     assert "KRAS-CDH1" in m.index                                     # the only gene fusion in the fixture
     assert not any("intragenic" in r or "Deletion" in r for r in m.index)
+
+
+def test_summary_lists_fusions_with_counts(fusion_export):
+    s = fusion_summary(fusion_export)
+    assert s.loc["CLDN18-ARHGAP26", "n"] == 1 and s.loc["CLDN18-ARHGAP26", "queried"] == "ARHGAP26, CLDN18"
+    assert s.index[0] in set(s.index) and s["n"].is_monotonic_decreasing
+    only = fusion_summary(fusion_export, five=r"CLDN\d+", three=r"ARHGAP\d+")
+    assert set(only.index) == {"CLDN18-ARHGAP26", "CLDN18-ARHGAP6"}
+    both = fusion_summary(fusion_export, five=r"CLDN\d+", three=r"ARHGAP\d+", ignore_orientation=True)
+    assert "ARHGAP26-CLDN18" in both.index
+    assert fusion_summary(fusion_export, by="PATIENT_ID")["n"].sum() <= fusion_summary(fusion_export)["n"].sum()
+
+
+def test_partner_pair_groups_and_orientation(fusion_export):
+    pair = {"CLDN-ARHGAP": (r"CLDN\d+", r"ARHGAP\d+")}
+    m = fusion_matrix(fusion_export, groups=pair)
+    assert m.loc["CLDN-ARHGAP"].tolist()[:4] == [1, 1, 0, 0]          # 5' claudin only
+    free = fusion_matrix(fusion_export, groups=pair, ignore_orientation=True)
+    assert free.loc["CLDN-ARHGAP"].tolist()[:4] == [1, 1, 1, 0]       # S3 has ARHGAP26-CLDN18
+    anyclaudin = fusion_matrix(fusion_export, groups={"claudin": (r"CLDN\d+", None)}, others=False)
+    assert anyclaudin.index.tolist() == ["claudin"] and anyclaudin.loc["claudin", "S2"] == 1
+    # a plain regex keeps working and respects ignore_orientation
+    rev = fusion_matrix(fusion_export, groups={"G": r"CLDN18-ARHGAP26"}, ignore_orientation=True)
+    assert rev.loc["G", "S3"] == 1
