@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+- `drivers_only=False` for `driver_event_matrix`, `driver_gene_matrix` and `alteration_matrix`:
+  all alterations of the chosen types, not only those labelled '(driver)' (variants of unknown
+  significance included, needed for locus-specific variant analyses). Gene-level columns of
+  `driver_gene_matrix` are then named `<GENE>_ANY`. On TCGA STAD + EAC: 1116 instead of 649
+  mutation events.
+
 ## 0.3.0
 
 ### Added

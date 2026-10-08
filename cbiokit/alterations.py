@@ -169,7 +169,8 @@ def panel_genes_from_export(export: AlterationExport, gene_panel: pd.Series,
 
 
 def driver_event_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", "AMP", "HOMDEL"),
-                        min_samples: int = 1, order: bool = True) -> pd.DataFrame:
+                        min_samples: int = 1, order: bool = True,
+                        drivers_only: bool = True) -> pd.DataFrame:
     """Samples x driver events ('GENE:EVENT', e.g. 'KRAS:G12D', 'ERBB2:AMP').
 
     Parameters
@@ -181,17 +182,24 @@ def driver_event_matrix(export: AlterationExport, types: Sequence[str] = ("MUT",
     min_samples : int
         Events present in fewer samples are dropped.
     order : bool
-        Order genes by their total number of driver events and, within a gene, events by
+        Order genes by their total number of events and, within a gene, events by
         frequency (both descending), e.g. for oncoprints.
+    drivers_only : bool
+        True (default): only events labelled '(driver)' by cBioPortal. False: every event of
+        ``types``, including variants of unknown significance, as needed for locus-specific
+        analyses of individual variants (e.g. ``pyrea.locus_specific_mps``).
 
     Returns
     -------
     pd.DataFrame
         Index SAMPLE_ID; 1 = event present, 0 = absent, missing = the gene was not profiled
-        for the event's type in this sample.
+        for the event's type in this sample. Note that a sample carrying a *different* variant
+        of the same gene is also 0; to compare a variant with truly wild-type samples, derive
+        the gene-level state (any variant) as ``pyrea.locus_specific_mps`` does.
     """
 
-    ev = export.events[export.events["DRIVER"] & export.events["TYPE"].isin(types)]
+    keep = export.events["TYPE"].isin(types)
+    ev = export.events[keep & export.events["DRIVER"]] if drivers_only else export.events[keep]
     ev = ev.assign(COLUMN=ev["GENE"] + ":" + ev["EVENT"]).drop_duplicates(["SAMPLE_ID", "COLUMN"])
 
     counts = ev.groupby(["GENE", "COLUMN"]).size().rename("n").reset_index()
@@ -217,15 +225,15 @@ def driver_event_matrix(export: AlterationExport, types: Sequence[str] = ("MUT",
 
 def driver_gene_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", "AMP", "HOMDEL"),
                        gene_groups: Optional[Dict[str, Sequence[str]]] = None,
-                       fusions: bool = True) -> pd.DataFrame:
+                       fusions: bool = True, drivers_only: bool = True) -> pd.DataFrame:
     """One row per sample: driver status per gene (and gene group), plus structural variants.
 
     Columns
     -------
-    <GENE>_DRIVER
+    <GENE>_DRIVER   (``<GENE>_ANY`` with ``drivers_only=False``)
         1 if the gene has a driver event of one of ``types``; 0 if it was profiled for ALL of
         ``types`` and has none; missing otherwise (e.g. no mutation data for the sample).
-    <GROUP>_DRIVER, <GROUP>_N_DRIVER
+    <GROUP>_DRIVER, <GROUP>_N_DRIVER   (``_ANY`` / ``_N_ANY`` with ``drivers_only=False``)
         For ``gene_groups`` (e.g. ``config.gene_groups``): 1 if any gene of the group has a
         driver, 0 if all genes are 0, else missing; N_DRIVER = number of genes with a driver.
     <GENE>_SV (with ``fusions=True``)
@@ -233,6 +241,10 @@ def driver_gene_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", 
         deletion/duplication, ...; the exports carry no driver label for these), 0 if
         profiled without one, missing if not profiled. Inspect the individual events in
         ``export.events.query("TYPE == 'FUSION'")`` before using a column.
+
+    With ``drivers_only=False`` every event of ``types`` counts, not only those labelled
+    '(driver)' (variants of unknown significance included); the columns are then named
+    ``..._ANY``.
 
     Returns
     -------
@@ -244,24 +256,26 @@ def driver_gene_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", 
 
     prof = export.profiled
     ev = export.events
-    drv = ev[ev["DRIVER"] & ev["TYPE"].isin(types)]
+    keep = ev["TYPE"].isin(types)
+    drv = ev[keep & ev["DRIVER"]] if drivers_only else ev[keep]
+    sfx = "DRIVER" if drivers_only else "ANY"
     out = {}
 
     for g in export.genes:
         profiled_all = prof[[(g, t) for t in types]].all(axis=1)
         has = prof.index.isin(drv.loc[drv["GENE"] == g, "SAMPLE_ID"])
-        out[f"{g}_DRIVER"] = np.where(has, 1.0, np.where(profiled_all, 0.0, np.nan))
+        out[f"{g}_{sfx}"] = np.where(has, 1.0, np.where(profiled_all, 0.0, np.nan))
 
     res = pd.DataFrame(out, index=prof.index)
 
     for grp, gl in (gene_groups or {}).items():
-        cols = [f"{g}_DRIVER" for g in gl if f"{g}_DRIVER" in res.columns]
-        absent = [g for g in gl if f"{g}_DRIVER" not in res.columns]
+        cols = [f"{g}_{sfx}" for g in gl if f"{g}_{sfx}" in res.columns]
+        absent = [g for g in gl if f"{g}_{sfx}" not in res.columns]
         if absent:
             raise ValueError(f"Genes of group {grp!r} not in the export: {absent}")
         sub = res[cols]
-        res[f"{grp}_N_DRIVER"] = sub.sum(axis=1)
-        res[f"{grp}_DRIVER"] = np.where(sub.eq(1).any(axis=1), 1.0, np.where(sub.notna().all(axis=1), 0.0, np.nan))
+        res[f"{grp}_N_{sfx}"] = sub.sum(axis=1)
+        res[f"{grp}_{sfx}"] = np.where(sub.eq(1).any(axis=1), 1.0, np.where(sub.notna().all(axis=1), 0.0, np.nan))
 
     if fusions:
         sv = ev[ev["TYPE"] == "FUSION"]
@@ -303,7 +317,8 @@ def concat_exports(exports: Sequence[AlterationExport]) -> AlterationExport:
 
 
 def alteration_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", "AMP", "HOMDEL"),
-                      level: str = "gene", by: str = "SAMPLE_ID", min_samples: int = 0) -> pd.DataFrame:
+                      level: str = "gene", by: str = "SAMPLE_ID", min_samples: int = 0,
+                      drivers_only: bool = True) -> pd.DataFrame:
     """Binary driver matrix, rows x samples (e.g. as the ``mutations`` input of ``pyrea``).
 
     Parameters
@@ -319,7 +334,13 @@ def alteration_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", "
         is 1, else 0 if any is 0, else missing).
     min_samples : int
         Rows with fewer samples carrying the alteration are dropped (default 0 keeps all genes,
-        also those without any driver).
+        also those without any driver). Do not use it to prefilter rare variants before
+        ``pyrea.locus_specific_mps(..., exclude_other_variants=True)``: carriers of dropped
+        variants would then count as wild type.
+    drivers_only : bool
+        True (default): only alterations labelled '(driver)'. False: all alterations of
+        ``types``, also variants of unknown significance (needed for locus-specific variant
+        analyses; at gene level 'mutated' then means any non-silent mutation).
 
     Returns
     -------
@@ -329,10 +350,10 @@ def alteration_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", "
     """
 
     if level == "gene":
-        m = driver_gene_matrix(export, types=types, fusions=False).set_index("SAMPLE_ID")
-        m.columns = m.columns.str.removesuffix("_DRIVER")
+        m = driver_gene_matrix(export, types=types, fusions=False, drivers_only=drivers_only).set_index("SAMPLE_ID")
+        m.columns = m.columns.str.removesuffix("_DRIVER" if drivers_only else "_ANY")
     elif level == "event":
-        m = driver_event_matrix(export, types=types)
+        m = driver_event_matrix(export, types=types, drivers_only=drivers_only)
     else:
         raise ValueError("level must be 'gene' or 'event'")
 

@@ -35,3 +35,32 @@ the checks made on twelve real exports (MSK-CHORD, MSK-MET, GENIE BPC, TCGA, CPT
 
 Exports are derived study data: keep them out of version control when the study
 licence forbids redistribution.
+
+## Drivers only, or all variants?
+
+cBioPortal labels some alterations '(driver)' (OncoKB / hotspots). By default the matrices only
+contain these. Pass `drivers_only=False` to include every alteration of the chosen `types`,
+variants of unknown significance included:
+
+```python
+drivers = cbk.alteration_matrix(ex, types=("MUT",), level="event")                       # 649 rows (STAD+EAC)
+allvars = cbk.alteration_matrix(ex, types=("MUT",), level="event", drivers_only=False)   # 1116 rows
+anymut  = cbk.alteration_matrix(ex, types=("MUT",), level="gene",  drivers_only=False)   # any non-silent mutation
+```
+
+An event matrix has a 0 for a variant in every sample that does not carry it, including carriers
+of *other* variants of the gene; those are not wild type. When comparing variants with wild type,
+use `pyrea.locus_specific_mps`, which derives the gene state itself (see the pyrea README), and do
+not drop rare variants beforehand (`min_samples` in `alteration_matrix`).
+
+## Gene fusions
+
+Fusions are never labelled as drivers and therefore have their own matrix:
+
+```python
+fus = cbk.fusion_matrix(ex, groups={"CLDN18-ARHGAP6/26": r"CLDN18-ARHGAP(6|26)"}, by="PATIENT_ID")
+```
+
+A fusion that the export lists under both partners counts once per sample; 'A-B' and 'B-A' are
+different fusions; `groups` merges variants into one row.
+

@@ -83,3 +83,22 @@ def test_invalid_arguments(export):  # noqa: F811
         alteration_matrix(export, level="exon")
     with pytest.raises(ValueError):
         alteration_matrix(export, by="STUDY_ID")
+
+
+def test_drivers_only_false_includes_vus(export):  # noqa: F811
+    drv = alteration_matrix(export, types=("MUT",), level="event")
+    allv = alteration_matrix(export, types=("MUT",), level="event", drivers_only=False)
+    assert "ERBB2:S310F" not in drv.index and "TP53:P322Hfs*23" not in drv.index
+    assert allv.loc["ERBB2:S310F"].tolist()[:2] == [0, 1]           # S2 carries the non-driver S310F
+    assert allv.loc["TP53:P322Hfs*23", "S1"] == 1
+    assert set(drv.index) <= set(allv.index)
+    # profiling is unchanged: S3 has no mutation data
+    assert allv.loc["ERBB2:S310F", "S3"] != allv.loc["ERBB2:S310F", "S3"]  # NaN
+
+
+def test_gene_level_any_mutation(export):  # noqa: F811
+    drv = alteration_matrix(export, types=("MUT",))
+    anym = alteration_matrix(export, types=("MUT",), drivers_only=False)
+    assert drv.loc["ERBB2", "S2"] == 0 and anym.loc["ERBB2", "S2"] == 1
+    assert not any(str(i).endswith("_ANY") for i in anym.index)
+    assert (anym.fillna(0) >= drv.fillna(0)).all().all()           # any mutation includes the drivers
