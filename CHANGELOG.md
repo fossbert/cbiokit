@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+- `variant_class`, `variant_class_matrix`: classes of mutations from the protein change in the
+  export (truncating = nonsense, frameshift, splice site, stop-inserting; inframe; missense;
+  other) and a binary matrix with rows such as `CDH1:truncating`, with the usual NaN = not
+  profiled convention. For comparing mutation classes of a gene, e.g. with
+  `pyrea.compare_phenotypes`. The classes are a heuristic on the event text; on the STAD, EAC,
+  BRCA and GBM exports 6 of 2,807 distinct variants fall into `other` (start loss, stop loss,
+  generic labels).
+
 ## 0.5.1
 
 ### Fixed

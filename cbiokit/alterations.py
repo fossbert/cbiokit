@@ -543,3 +543,62 @@ def fusion_matrix(export: AlterationExport, groups: Optional[Dict[str, object]] 
 
     m = _aggregate_by(m, export, by)
     return m.loc[m.sum(axis=1) >= min_samples]
+
+
+_CLASS_RULES = (
+    ("truncating", re.compile(r"(\d[A-Z]?fs)|(^[A-Z]\d+\*)|(_splice$)|(^X\d+_splice)|(ins\*)")),
+    ("inframe", re.compile(r"(del|ins|dup)")),
+    ("missense", re.compile(r"^[A-Z]\d+[A-Z]$")),
+)
+
+
+def variant_class(event: str) -> str:
+    """Class of a protein change as written in a cBioPortal export.
+
+    - ``truncating``: nonsense ('R213*'), frameshift ('S70Pfs*13'), splice-site ('X229_splice') and
+      stop-inserting ('T515_F516ins*') variants, i.e. the typical loss-of-function mutations
+    - ``inframe``: in-frame deletions, insertions and duplications ('E746_A750del', 'L220_D221delinsP')
+    - ``missense``: single amino-acid substitutions ('G212E')
+    - ``other``: everything else (start loss 'M1?', generic labels like 'MUTATED', ...)
+
+    The classes are derived from the text of the event and are therefore a heuristic: check
+    ``export.events.query("TYPE == 'MUT'")`` of your gene if the numbers matter.
+    """
+
+    for name, pattern in _CLASS_RULES:
+        if pattern.search(event):
+            return name
+    return "other"
+
+
+def variant_class_matrix(export: AlterationExport, by: str = "SAMPLE_ID", min_samples: int = 0,
+                         drivers_only: bool = False) -> pd.DataFrame:
+    """Binary matrix of mutation classes per gene, ``GENE:class`` x samples.
+
+    Rows such as ``CDH1:truncating`` / ``CDH1:missense`` / ``CDH1:inframe`` (see
+    :func:`variant_class`): 1 if the sample has at least one mutation of that class in the gene,
+    0 if the gene was profiled for mutations without one, NaN if it was not profiled. Same
+    conventions as :func:`alteration_matrix`.
+
+    Parameters
+    ----------
+    export : AlterationExport
+    by : {'SAMPLE_ID', 'PATIENT_ID'}
+    min_samples : int
+        Rows with fewer samples are dropped.
+    drivers_only : bool
+        Only mutations labelled '(driver)'; the default (False) takes all, which is what
+        class comparisons usually need (missense variants are mostly unlabelled).
+
+    Notes
+    -----
+    A sample that has mutations of another class of the same gene is 0 here. If a class is to be
+    compared with wild type, exclude those samples (set them to NaN) or give every class its own
+    group (``pyrea.compare_phenotypes`` leaves overlapping samples out of the reference).
+    """
+
+    ev = export.events
+    classed = ev[ev["TYPE"] == "MUT"].assign(EVENT=lambda d: d["EVENT"].map(variant_class))
+    return alteration_matrix(AlterationExport(export.samples, classed, export.profiled), types=("MUT",),
+                             level="event", by=by, min_samples=min_samples, drivers_only=drivers_only)
+

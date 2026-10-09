@@ -53,6 +53,19 @@ of *other* variants of the gene; those are not wild type. When comparing variant
 use `pyrea.locus_specific_mps`, which derives the gene state itself (see the pyrea README), and do
 not drop rare variants beforehand (`min_samples` in `alteration_matrix`).
 
+## Mutation classes
+
+```python
+cbk.variant_class("S70Pfs*13")                           # 'truncating' (also nonsense, splice site)
+classes = cbk.variant_class_matrix(ex, by="PATIENT_ID")   # rows 'CDH1:truncating', 'CDH1:missense', 'CDH1:inframe', ...
+classes.loc[classes.index.str.startswith("CDH1:")].sum(axis=1)
+```
+
+All mutations count by default (`drivers_only=False`): missense variants are mostly unlabelled. The
+classes come from the text of the protein change, so look at the events of your gene if it matters.
+A sample with a mutation of another class is 0 in a class row; to compare a class with wild type,
+set such samples to NaN or compare all classes together (`pyrea.compare_phenotypes`).
+
 ## Gene fusions
 
 Fusions are never labelled as drivers and therefore have their own matrix:
