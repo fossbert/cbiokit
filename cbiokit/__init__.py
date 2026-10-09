@@ -12,4 +12,4 @@ from .alterations import (AlterationExport, alteration_matrix, concat_exports, d
                           driver_gene_matrix, fusion_events, fusion_matrix, fusion_summary, panel_genes_from_export,
                           read_alteration_export)
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"

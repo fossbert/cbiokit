@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cbiokit"
-version = "0.5.0"
+version = "0.5.1"
 description = "Helpers for cBioPortal exports: driver (OncoKB) events and matrices from alterations-across-samples tables"
 authors = [{ name = "H. Carlo Maurer", email = "h.carlo.maurer@gmail.com" }]
 readme = "README.md"

@@ -19,7 +19,11 @@ Checked on twelve exports (MSK-CHORD, MSK-MET, GENIE BPC CRC, TCGA CRC/STAD/EAC/
 LUSC, CPTAC COAD), 2026-09-30:
 
 - The summary column is always the union of the typed columns, so only the typed columns are
-  used here and the type of every event is known (no guessing from the text).
+  used here and the type of every event is known (no guessing from the text) -- with one
+  exception: ``<GENE>: AMP`` and ``<GENE>: HOMDEL`` are identical columns that both list all copy
+  number events (checked on STAD, EAC, BRCA and GBM). The type of a copy number event is
+  therefore taken from the event itself ('AMP' or 'HOMDEL') and duplicates are removed;
+  otherwise 'AMP' would also contain the deletions.
 - ``not profiled`` differs between types: e.g. samples without mutation data but with copy
   number data show ``no alteration`` in the summary column. Profiling is therefore tracked
   per gene AND type; 'not profiled' is missing, never 'wild type'.
@@ -130,6 +134,9 @@ def read_alteration_export(path: Union[str, Path]) -> AlterationExport:
                     rows.append((sid, g, t, ev, drv))
 
     events = pd.DataFrame(rows, columns=["SAMPLE_ID", "GENE", "TYPE", "EVENT", "DRIVER"])
+    cna = events["TYPE"].isin(("AMP", "HOMDEL")) & events["EVENT"].isin(("AMP", "HOMDEL"))
+    events.loc[cna, "TYPE"] = events.loc[cna, "EVENT"]  # both columns list all copy number events
+    events = events.drop_duplicates().reset_index(drop=True)
     prof = pd.DataFrame(profiled, index=pd.Index(sids, name="SAMPLE_ID"))
     prof.columns = pd.MultiIndex.from_tuples(prof.columns, names=["GENE", "TYPE"])
     return AlterationExport(samples.reset_index(drop=True), events, prof)

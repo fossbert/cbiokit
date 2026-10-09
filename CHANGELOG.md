@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.1
+
+### Fixed
+- Copy number: cBioPortal's `<GENE>: AMP` and `<GENE>: HOMDEL` columns are identical (both list all
+  copy number events), so `types=("AMP",)` also counted deletions and `types=("HOMDEL",)` also
+  amplifications. The type of a copy number event is now taken from the event ('AMP' or 'HOMDEL'),
+  duplicates are dropped. Checked on STAD, EAC, BRCA and GBM exports: e.g. GBM CDKN2A had 322
+  deletions counted as 'AMP'. The default `types=("MUT", "AMP", "HOMDEL")` and all MUT/fusion
+  results were not affected; ERBB2 (STAD, BRCA) and EGFR (GBM) amplification counts are unchanged
+  because those genes have no deletions.
+
 ## 0.5.0
 
 ### Added

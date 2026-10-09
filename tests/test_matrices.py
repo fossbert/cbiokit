@@ -102,3 +102,25 @@ def test_gene_level_any_mutation(export):  # noqa: F811
     assert drv.loc["ERBB2", "S2"] == 0 and anym.loc["ERBB2", "S2"] == 1
     assert not any(str(i).endswith("_ANY") for i in anym.index)
     assert (anym.fillna(0) >= drv.fillna(0)).all().all()           # any mutation includes the drivers
+
+
+def test_amp_and_homdel_columns_are_not_mixed(tmp_path):
+    """cBioPortal lists all copy number events in BOTH the AMP and the HOMDEL column."""
+    cna = ["AMP (driver)", "HOMDEL (driver)", NA, NP]
+    recs = []
+    for i, c in enumerate(cna):
+        recs.append({"Study ID": "d", "Sample ID": f"S{i}", "Patient ID": f"P{i}", "Altered": 1, "TP53": c,
+                     "TP53: MUT": NA, "TP53: AMP": c, "TP53: HOMDEL": c})
+    f = tmp_path / "cna.tsv"
+    pd.DataFrame(recs).to_csv(f, sep="\t", index=False)
+    ex = read_alteration_export(f)
+
+    assert ex.events.groupby(["TYPE", "EVENT"]).size().to_dict() == {("AMP", "AMP"): 1, ("HOMDEL", "HOMDEL"): 1}
+    amp = alteration_matrix(ex, types=("AMP",)).loc["TP53"]
+    dele = alteration_matrix(ex, types=("HOMDEL",)).loc["TP53"]
+    assert amp.tolist()[:3] == [1, 0, 0] and dele.tolist()[:3] == [0, 1, 0]
+    assert amp.isna().tolist() == [False, False, False, True]           # not profiled stays missing
+    both = alteration_matrix(ex, types=("AMP", "HOMDEL")).loc["TP53"]
+    assert both.tolist()[:3] == [1, 1, 0]
+    ev = alteration_matrix(ex, types=("AMP", "HOMDEL"), level="event")
+    assert ev.index.tolist() == ["TP53:AMP", "TP53:HOMDEL"]
