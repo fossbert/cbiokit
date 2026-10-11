@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0
+
+### Added
+- `calc_combo_muts`, `make_combo_df` (module `cbiokit.combos`): count co-occurring alterations per
+  patient (all combinations of size >= 2 above `min_occurence`) and build the binary combination
+  table for them. Input is patients x alterations (0/1), e.g. `alteration_matrix(...).T`. New
+  options `max_size` (limit combination size, the number of combinations grows exponentially) and
+  `sep` (id separator, for names containing '_').
+
 ## 0.6.0
 
 ### Added

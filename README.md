@@ -66,6 +66,19 @@ classes come from the text of the protein change, so look at the events of your 
 A sample with a mutation of another class is 0 in a class row; to compare a class with wild type,
 set such samples to NaN or compare all classes together (`pyrea.compare_phenotypes`).
 
+## Co-occurring alterations
+
+```python
+mat = cbk.alteration_matrix(ex, by="PATIENT_ID").T.fillna(0)     # patients x alterations, 0/1
+combos = cbk.calc_combo_muts(mat, min_occurence=10, max_size=3)   # Series 'KRAS_TP53' -> n patients
+combo_df = cbk.make_combo_df(mat, combos.index)                   # patients x combinations, 0/1
+```
+
+A combination counts for a patient if all its members are present (other alterations may be too).
+`max_size` limits the combination size; without it, patients with many alterations produce
+exponentially many combinations. If alteration names contain '_', pass `sep=` to
+`calc_combo_muts` and the same value as `splitter=` to `make_combo_df`.
+
 ## Gene fusions
 
 Fusions are never labelled as drivers and therefore have their own matrix:
