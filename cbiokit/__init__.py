@@ -14,4 +14,4 @@ from .alterations import (AlterationExport, alteration_matrix, concat_exports, d
                           driver_gene_matrix, fusion_events, fusion_matrix, fusion_summary, panel_genes_from_export,
                           read_alteration_export, variant_class, variant_class_matrix)
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

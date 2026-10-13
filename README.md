@@ -36,27 +36,33 @@ the checks made on twelve real exports (MSK-CHORD, MSK-MET, GENIE BPC, TCGA, CPT
 Exports are derived study data: keep them out of version control when the study
 licence forbids redistribution.
 
-## Drivers only, or all variants?
+## All alterations by default, drivers on request
 
-cBioPortal labels some alterations '(driver)' (OncoKB / hotspots). By default the matrices only
-contain these. Pass `drivers_only=False` to include every alteration of the chosen `types`,
-variants of unknown significance included:
+cBioPortal labels some alterations '(driver)' (OncoKB / hotspots). The label exists only for annotated genes and
+alteration types, so it is not a neutral filter: e.g. `RHOA` deletions or variants of unknown significance carry no
+label and would silently disappear. **The matrices therefore contain all alterations by default.** To restrict to the
+labelled drivers, filter the export:
 
 ```python
-drivers = cbk.alteration_matrix(ex, types=("MUT",), level="event")                       # 649 rows (STAD+EAC)
-allvars = cbk.alteration_matrix(ex, types=("MUT",), level="event", drivers_only=False)   # 1116 rows
-anymut  = cbk.alteration_matrix(ex, types=("MUT",), level="gene",  drivers_only=False)   # any non-silent mutation
+ex = cbk.read_alteration_export("alterations_across_samples.tsv")
+
+anymut = cbk.alteration_matrix(ex, types=("MUT",))                          # any non-silent mutation (VUS included)
+variants = cbk.alteration_matrix(ex, types=("MUT",), level="event")         # 'GENE:EVENT' rows, all variants
+drivers = cbk.alteration_matrix(ex.drivers(), types=("MUT",), level="event")   # only events labelled '(driver)'
 ```
 
-**Copy number needs `drivers_only=False` for genes without an OncoKB label.** cBioPortal marks a CNA as
-'(driver)' only for annotated oncogene amplifications and tumour-suppressor deletions; for other genes (e.g. 11 `RHOA`
-deletions in STAD/EAC) `drivers_only=True` returns no carriers at all. A gene that has no events of a type in the export
-(e.g. no `RHOA` amplification) gives an all-zero row either way.
+`ex.drivers()` returns a copy of the export with only the driver events (samples and profiling unchanged, so 'not
+profiled' stays missing and unannotated genes become 0); every function accepts it. `drivers_only=True` in
+`alteration_matrix` is a shorthand for the same. Fusions are never labelled as drivers, so `fusion_matrix(ex.drivers())`
+is empty.
 
-An event matrix has a 0 for a variant in every sample that does not carry it, including carriers
-of *other* variants of the gene; those are not wild type. When comparing variants with wild type,
-use `pyrea.locus_specific_mps`, which derives the gene state itself (see the pyrea README), and do
-not drop rare variants beforehand (`min_samples` in `alteration_matrix`).
+The functions named `driver_event_matrix` and `driver_gene_matrix` keep their original meaning (default
+`drivers_only=True`, the OncoKB matrices of `chordutils`).
+
+An event matrix has a 0 for a variant in every sample that does not carry it, including carriers of *other* variants of
+the gene; those are not wild type. When comparing variants with wild type, use `pyrea.locus_specific_mps`, which derives
+the gene state itself (see the pyrea README), and do not drop rare variants beforehand (`min_samples` in
+`alteration_matrix`).
 
 ## Mutation classes
 

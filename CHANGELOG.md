@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0
+
+### Changed (behaviour)
+- `alteration_matrix` now counts **all alterations by default** (`drivers_only=False`); before, only events labelled
+  '(driver)' counted. The driver label exists only for annotated genes (e.g. RHOA deletions and VUS have none), so it
+  is no neutral filter. Code that relied on the old default must pass `drivers_only=True` or use `export.drivers()`.
+  `driver_event_matrix` and `driver_gene_matrix` keep their driver default (their names say so; `chordutils` uses them).
+
+### Added
+- `AlterationExport.drivers()`: copy of the export with only the driver events (samples and profiling unchanged);
+  works with every matrix function. `fusion_matrix` of such an export is empty instead of an error.
+
 ## 0.7.0
 
 ### Added

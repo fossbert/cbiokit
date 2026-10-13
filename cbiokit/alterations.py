@@ -74,6 +74,18 @@ class AlterationExport:
     def genes(self) -> list:
         return list(dict.fromkeys(self.profiled.columns.get_level_values(0)))
 
+    def drivers(self) -> "AlterationExport":
+        """Copy of the export that keeps only the events cBioPortal labels '(driver)'.
+
+        The driver label (OncoKB / hotspots) exists only for annotated genes and alteration types, so a gene
+        without annotation has no event left after this filter (e.g. deletions of a gene that is not a known
+        tumour suppressor). Samples and the profiling information are unchanged, so that 'not profiled' stays
+        missing and unannotated genes become 0. Every matrix function works on the result::
+
+            alteration_matrix(ex.drivers(), types=("MUT",), level="event")
+        """
+        return AlterationExport(self.samples, self.events[self.events["DRIVER"]].reset_index(drop=True), self.profiled)
+
     def __repr__(self):
         n_drv = int(self.events["DRIVER"].sum())
         return (f"AlterationExport({len(self.samples)} samples, {len(self.genes)} genes, "
@@ -180,6 +192,9 @@ def driver_event_matrix(export: AlterationExport, types: Sequence[str] = ("MUT",
                         drivers_only: bool = True) -> pd.DataFrame:
     """Samples x driver events ('GENE:EVENT', e.g. 'KRAS:G12D', 'ERBB2:AMP').
 
+    The functions named ``driver_*`` keep their original meaning (default ``drivers_only=True``: the OncoKB driver
+    matrices of ``chordutils``). For neutral matrices of all alterations use :func:`alteration_matrix`.
+
     Parameters
     ----------
     export : AlterationExport
@@ -234,6 +249,9 @@ def driver_gene_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", 
                        gene_groups: Optional[Dict[str, Sequence[str]]] = None,
                        fusions: bool = True, drivers_only: bool = True) -> pd.DataFrame:
     """One row per sample: driver status per gene (and gene group), plus structural variants.
+
+    Keeps its original meaning (default ``drivers_only=True``); for neutral matrices of all alterations use
+    :func:`alteration_matrix`.
 
     Columns
     -------
@@ -325,8 +343,11 @@ def concat_exports(exports: Sequence[AlterationExport]) -> AlterationExport:
 
 def alteration_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", "AMP", "HOMDEL"),
                       level: str = "gene", by: str = "SAMPLE_ID", min_samples: int = 0,
-                      drivers_only: bool = True) -> pd.DataFrame:
-    """Binary driver matrix, rows x samples (e.g. as the ``mutations`` input of ``pyrea``).
+                      drivers_only: bool = False) -> pd.DataFrame:
+    """Binary alteration matrix, rows x samples (e.g. as the ``mutations`` input of ``pyrea``).
+
+    All alterations of the chosen ``types`` count, whether or not cBioPortal labels them '(driver)'. To restrict
+    to the labelled drivers use ``alteration_matrix(export.drivers(), ...)`` (see :meth:`AlterationExport.drivers`).
 
     Parameters
     ----------
@@ -334,7 +355,7 @@ def alteration_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", "
     types : sequence of {'MUT', 'AMP', 'HOMDEL', 'FUSION'}
         Alteration types counted, e.g. ``("MUT",)`` for mutations only or ``("AMP",)``.
     level : {'gene', 'event'}
-        ``'gene'``: one row per gene (1 = driver of one of ``types``; 0 only if profiled for
+        ``'gene'``: one row per gene (1 = altered by one of ``types``; 0 only if profiled for
         ALL ``types``). ``'event'``: one row per ``GENE:EVENT`` (see ``driver_event_matrix``).
     by : {'SAMPLE_ID', 'PATIENT_ID'}
         Columns are samples, or patients (several samples of a patient are combined: 1 if any
@@ -345,9 +366,10 @@ def alteration_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", "
         ``pyrea.locus_specific_mps(..., exclude_other_variants=True)``: carriers of dropped
         variants would then count as wild type.
     drivers_only : bool
-        True (default): only alterations labelled '(driver)'. False: all alterations of
-        ``types``, also variants of unknown significance (needed for locus-specific variant
-        analyses; at gene level 'mutated' then means any non-silent mutation).
+        Shorthand for ``export.drivers()``: only alterations labelled '(driver)'. Default False: all
+        alterations, also variants of unknown significance (needed for locus-specific variant analyses).
+        Note that the label exists only for annotated genes: with True, e.g. deletions of a gene that
+        is no known tumour suppressor are not found at all.
 
     Returns
     -------
@@ -356,11 +378,12 @@ def alteration_matrix(export: AlterationExport, types: Sequence[str] = ("MUT", "
         matrix (events: by gene frequency).
     """
 
+    exp = export.drivers() if drivers_only else export
     if level == "gene":
-        m = driver_gene_matrix(export, types=types, fusions=False, drivers_only=drivers_only).set_index("SAMPLE_ID")
-        m.columns = m.columns.str.removesuffix("_DRIVER" if drivers_only else "_ANY")
+        m = driver_gene_matrix(exp, types=types, fusions=False, drivers_only=False).set_index("SAMPLE_ID")
+        m.columns = m.columns.str.removesuffix("_ANY")
     elif level == "event":
-        m = driver_event_matrix(export, types=types, drivers_only=drivers_only)
+        m = driver_event_matrix(exp, types=types, drivers_only=False)
     else:
         raise ValueError("level must be 'gene' or 'event'")
 
@@ -515,6 +538,8 @@ def fusion_matrix(export: AlterationExport, groups: Optional[Dict[str, object]] 
 
     fe = fusion_events(export)
     index = export.profiled.index
+    if fe.empty:                      # e.g. export.drivers(): fusions are never labelled as drivers
+        return pd.DataFrame(index=pd.Index([], name="FUSION"), columns=_aggregate_by(pd.DataFrame(index=index), export, by).columns, dtype=float)
     prof = export.profiled.xs("FUSION", axis=1, level="TYPE")
 
     partners = fe.drop_duplicates("FUSION").set_index("FUSION")[["GENE5", "GENE3"]]

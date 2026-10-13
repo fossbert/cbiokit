@@ -65,13 +65,13 @@ def test_gene_matrix_orientation_and_types(export):  # noqa: F811
 
 
 def test_event_matrix_and_min_samples(export):  # noqa: F811
-    m = alteration_matrix(export, level="event")
+    m = alteration_matrix(export.drivers(), level="event")
     assert m.index.tolist() == ["KRAS:G12D", "KRAS:G12V", "TP53:HOMDEL", "TP53:MUTATED", "TP53:R175H", "ERBB2:AMP"]
-    assert alteration_matrix(export, level="event", min_samples=2).index.tolist() == ["KRAS:G12D"]
+    assert alteration_matrix(export.drivers(), level="event", min_samples=2).index.tolist() == ["KRAS:G12D"]
 
 
 def test_by_patient_combines_samples(export):  # noqa: F811
-    m = alteration_matrix(export, by="PATIENT_ID", types=("MUT",))
+    m = alteration_matrix(export.drivers(), by="PATIENT_ID", types=("MUT",))
     assert list(m.columns) == ["P1", "P2", "P3", "P4"]          # S1+S2 -> P1
     assert m.loc["ERBB2", "P1"] == 0 and m.loc["TP53", "P1"] == 1  # ERBB2 driver is an AMP; S310F is no driver
     assert m.loc["KRAS", "P1"] == 1
@@ -85,9 +85,9 @@ def test_invalid_arguments(export):  # noqa: F811
         alteration_matrix(export, by="STUDY_ID")
 
 
-def test_drivers_only_false_includes_vus(export):  # noqa: F811
-    drv = alteration_matrix(export, types=("MUT",), level="event")
-    allv = alteration_matrix(export, types=("MUT",), level="event", drivers_only=False)
+def test_default_includes_vus_and_drivers_restrict(export):  # noqa: F811
+    drv = alteration_matrix(export.drivers(), types=("MUT",), level="event")
+    allv = alteration_matrix(export, types=("MUT",), level="event")           # default: all alterations
     assert "ERBB2:S310F" not in drv.index and "TP53:P322Hfs*23" not in drv.index
     assert allv.loc["ERBB2:S310F"].tolist()[:2] == [0, 1]           # S2 carries the non-driver S310F
     assert allv.loc["TP53:P322Hfs*23", "S1"] == 1
@@ -97,8 +97,8 @@ def test_drivers_only_false_includes_vus(export):  # noqa: F811
 
 
 def test_gene_level_any_mutation(export):  # noqa: F811
-    drv = alteration_matrix(export, types=("MUT",))
-    anym = alteration_matrix(export, types=("MUT",), drivers_only=False)
+    drv = alteration_matrix(export.drivers(), types=("MUT",))
+    anym = alteration_matrix(export, types=("MUT",))
     assert drv.loc["ERBB2", "S2"] == 0 and anym.loc["ERBB2", "S2"] == 1
     assert not any(str(i).endswith("_ANY") for i in anym.index)
     assert (anym.fillna(0) >= drv.fillna(0)).all().all()           # any mutation includes the drivers
@@ -124,3 +124,34 @@ def test_amp_and_homdel_columns_are_not_mixed(tmp_path):
     assert both.tolist()[:3] == [1, 1, 0]
     ev = alteration_matrix(ex, types=("AMP", "HOMDEL"), level="event")
     assert ev.index.tolist() == ["TP53:AMP", "TP53:HOMDEL"]
+
+
+def test_drivers_method_keeps_samples_and_profiling_and_filters_events(export):  # noqa: F811
+    d = export.drivers()
+    assert isinstance(d, type(export)) and d.events["DRIVER"].all() and len(d.events) < len(export.events)
+    assert export.events["DRIVER"].sum() == len(d.events)                 # all driver events kept
+    assert (~export.events["DRIVER"]).any()                               # the original is untouched
+    pd.testing.assert_frame_equal(d.samples, export.samples)
+    pd.testing.assert_frame_equal(d.profiled, export.profiled)
+    assert d.genes == export.genes
+
+
+def test_drivers_method_equals_the_drivers_only_shorthand(export):  # noqa: F811
+    for kw in ({"types": ("MUT",)}, {"types": ("AMP",)}, {"level": "event"}, {"by": "PATIENT_ID"}):
+        pd.testing.assert_frame_equal(alteration_matrix(export.drivers(), **kw), alteration_matrix(export, drivers_only=True, **kw))
+    assert not alteration_matrix(export).equals(alteration_matrix(export, drivers_only=True))   # the default is not driver-only
+    pd.testing.assert_frame_equal(alteration_matrix(export), alteration_matrix(export, drivers_only=False))
+
+
+def test_unannotated_events_vanish_with_drivers_but_not_by_default(export):  # noqa: F811
+    # KRAS has a non-driver AMP in S2: found by default, gone with drivers()
+    assert alteration_matrix(export, types=("AMP",)).loc["KRAS", "S2"] == 1
+    assert alteration_matrix(export.drivers(), types=("AMP",)).loc["KRAS", "S2"] == 0
+
+
+def test_fusion_matrix_on_a_drivers_export_is_empty_not_an_error(export):  # noqa: F811
+    from cbiokit import fusion_matrix
+
+    f = fusion_matrix(export.drivers())
+    assert f.shape[0] == 0 and list(f.columns) == list(export.samples["SAMPLE_ID"])
+    assert fusion_matrix(export).shape[0] > 0
