@@ -48,6 +48,11 @@ allvars = cbk.alteration_matrix(ex, types=("MUT",), level="event", drivers_only=
 anymut  = cbk.alteration_matrix(ex, types=("MUT",), level="gene",  drivers_only=False)   # any non-silent mutation
 ```
 
+**Copy number needs `drivers_only=False` for genes without an OncoKB label.** cBioPortal marks a CNA as
+'(driver)' only for annotated oncogene amplifications and tumour-suppressor deletions; for other genes (e.g. 11 `RHOA`
+deletions in STAD/EAC) `drivers_only=True` returns no carriers at all. A gene that has no events of a type in the export
+(e.g. no `RHOA` amplification) gives an all-zero row either way.
+
 An event matrix has a 0 for a variant in every sample that does not carry it, including carriers
 of *other* variants of the gene; those are not wild type. When comparing variants with wild type,
 use `pyrea.locus_specific_mps`, which derives the gene state itself (see the pyrea README), and do
