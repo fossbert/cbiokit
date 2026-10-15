@@ -90,6 +90,21 @@ A combination counts for a patient if all its members are present (other alterat
 exponentially many combinations. If alteration names contain '_', pass `sep=` to
 `calc_combo_muts` and the same value as `splitter=` to `make_combo_df`.
 
+### Two alterations: the 2 x 2 design
+
+`joint_status` labels every patient by which of two alterations it carries, e.g. a driver and a co-mutation, as the
+design of a co-mutation analysis (`pyrea.comutation_effect`):
+
+```python
+mat = cbk.alteration_matrix(ex, types=("MUT",), by="PATIENT_ID")          # rows x patients; NaN = not profiled
+status = cbk.joint_status(mat.loc["RHOA"], mat.loc["TP53"])               # ordered categorical
+status.value_counts()      # neither / RHOA only / TP53 only / RHOA+TP53 (empty cells are kept)
+```
+
+The categories are `[neither, a only, b only, both]` (`names=` and `neither=` rename them); patients not profiled
+for either alteration are NaN, never "neither". Note that with `types=("MUT",)` a patient with a deletion or
+amplification of the gene is "absent": set such patients to NaN first (as for single-gene analyses).
+
 ## Gene fusions
 
 Fusions are never labelled as drivers and therefore have their own matrix:

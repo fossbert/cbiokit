@@ -1,14 +1,17 @@
 """Co-occurring alterations: combinations of alterations per patient.
 
-Both functions expect a binary table with one row per patient and one column per alteration
-(0/1), i.e. the transpose of the matrices from :mod:`cbiokit.alterations`
+:func:`calc_combo_muts` and :func:`make_combo_df` expect a binary table with one row per patient and one
+column per alteration (0/1), i.e. the transpose of the matrices from :mod:`cbiokit.alterations`
 (``alteration_matrix(...).T``). A column MultiIndex is flattened to its second level.
+:func:`joint_status` takes two alterations as Series (e.g. rows of ``alteration_matrix``) and labels every patient
+by which of the two it carries.
 """
 
 from collections import defaultdict
 from itertools import combinations
 from typing import Optional, Sequence
 
+import numpy as np
 import pandas as pd
 
 
@@ -79,3 +82,48 @@ def make_combo_df(mut_df: pd.DataFrame, combos: Sequence, splitter: str = "_") -
     if not comb:
         return pd.DataFrame(index=md.index)
     return pd.concat(comb, axis=1)
+
+
+def joint_status(a: pd.Series, b: pd.Series, names: Optional[Sequence[str]] = None,
+                 neither: str = "neither") -> pd.Series:
+    """Label every sample by which of two alterations it carries (2 x 2 design).
+
+    Parameters
+    ----------
+    a, b : pd.Series
+        Alteration per sample: 1 (or > 0) = present, 0 = absent, NaN = not profiled. Aligned by index; a sample
+        missing from one of them is NaN.
+    names : sequence of 3 str, optional
+        Labels for "a only", "b only" and "both". Default: built from the Series names
+        (``"KRAS only"``, ``"TP53 only"``, ``"KRAS+TP53"``; ``"A"`` / ``"B"`` for unnamed Series).
+    neither : str
+        Label of samples with neither alteration.
+
+    Returns
+    -------
+    pd.Series
+        Ordered categorical with the categories ``[neither, a only, b only, both]`` (all present even if empty), NaN
+        where either alteration is not profiled. Use ``.value_counts()`` or ``pd.crosstab(a, b)`` for the cell sizes.
+
+    Examples
+    --------
+    >>> mat = cbk.alteration_matrix(ex, types=("MUT",), by="PATIENT_ID")
+    >>> status = cbk.joint_status(mat.loc["RHOA"], mat.loc["TP53"])
+    >>> status.value_counts()          # neither / RHOA only / TP53 only / RHOA+TP53
+    """
+
+    an = "A" if a.name is None else str(a.name)
+    bn = "B" if b.name is None else str(b.name)
+    labels = list(names) if names is not None else [f"{an} only", f"{bn} only", f"{an}+{bn}"]
+    if len(labels) != 3:
+        raise ValueError("names needs three labels: a only, b only, both")
+    cats = [neither] + labels
+    if len(set(cats)) != 4:
+        raise ValueError(f"The four labels must differ: {cats}")
+    idx = a.index.union(b.index, sort=False)
+    x, y = a.reindex(idx).astype(float), b.reindex(idx).astype(float)
+    xp, yp = x.gt(0), y.gt(0)
+    out = pd.Series(np.select([xp & yp, xp & ~yp, ~xp & yp, ~xp & ~yp], [labels[2], labels[0], labels[1], neither],
+                              default=""), index=idx, dtype=object)
+    out[x.isna() | y.isna()] = np.nan
+    return pd.Series(pd.Categorical(out, categories=cats, ordered=True), index=idx, name=f"{an}/{bn}")
